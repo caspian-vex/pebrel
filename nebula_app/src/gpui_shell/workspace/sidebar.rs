@@ -29,6 +29,26 @@ pub(super) fn sidebar_new_tab_control(
         .on_click(on_click)
 }
 
+/// 标题栏里的侧栏入口在设置页仍须可点击：设置页会暂时折起真实侧栏，此时
+/// 同一入口承担“返回工作区”，具体状态转换由调用方复用 `close_settings`。
+pub(super) fn sidebar_toggle_control(
+    sidebar_visible: bool,
+    secondary: gpui::Hsla,
+    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+) -> Button {
+    Button::new("toggle-sidebar")
+        .icon(IconName::PanelLeft)
+        .ghost()
+        // 侧栏是开关而非一次性动作：展开期间必须持续显示选中底，和旧壳
+        // `left_sidebar_visible()` 同义。
+        .selected(sidebar_visible)
+        // Ghost 的全局 selected 使用 hover_strong，静态底比旧壳亮一档；
+        // 仅此按钮覆写回旧壳 surface。
+        .when(sidebar_visible, |button| button.bg(secondary))
+        .tooltip("折叠/展开侧边栏 (Ctrl+Shift+B)")
+        .on_click(on_click)
+}
+
 /// 事件 vs 状态：一个 tab 此刻该显示哪个静息徽章。
 ///
 /// - `Done` 是**事件**——「回合完成了，你不在场」。你正看着这个 tab 时它没有
@@ -934,18 +954,14 @@ impl NebulaWorkspace {
                     .items_center()
                     .occlude()
                     .child(
-                        Button::new("toggle-sidebar")
-                            .icon(IconName::PanelLeft)
-                            .ghost()
-                            .disabled(settings_active)
-                            // 侧栏是开关而非一次性动作：展开期间必须持续显示
-                            // 选中底，和旧壳 `left_sidebar_visible()` 同义。
-                            .selected(sidebar_visible)
-                            // Ghost 的全局 selected 使用 hover_strong，静态底比
-                            // 旧壳亮一档；仅此按钮覆写回旧壳 surface。
-                            .when(sidebar_visible, |button| button.bg(secondary))
-                            .tooltip("折叠/展开侧边栏 (Ctrl+Shift+B)")
-                            .on_click(cx.listener(|this, _, _, cx| {
+                        sidebar_toggle_control(
+                            sidebar_visible,
+                            secondary,
+                            cx.listener(|this, _, window, cx| {
+                                if this.settings_open {
+                                    this.close_settings(window, cx);
+                                    return;
+                                }
                                 if this.reader_focus_active(cx) {
                                     this.clear_reader_focus(cx);
                                 } else {
@@ -953,7 +969,8 @@ impl NebulaWorkspace {
                                 }
                                 this.sidebar_fold_armed = true;
                                 cx.notify();
-                            })),
+                            }),
+                        ),
                     )
                     .child(
                         Button::new("open-settings")

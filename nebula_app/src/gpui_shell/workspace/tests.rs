@@ -187,6 +187,55 @@ mod sidebar_new_tab_tests {
 }
 
 #[cfg(feature = "gpui-test-support")]
+mod sidebar_toggle_tests {
+    use super::*;
+    use gpui::{Modifiers, TestAppContext};
+
+    struct SidebarToggleProbe {
+        settings_open: bool,
+        returned_to_workspace: bool,
+    }
+
+    impl Render for SidebarToggleProbe {
+        fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            div().w(px(48.0)).h(px(48.0)).child(super::sidebar::sidebar_toggle_control(
+                false,
+                gpui::transparent_black(),
+                cx.listener(|this, _, _, cx| {
+                    if this.settings_open {
+                        this.settings_open = false;
+                        this.returned_to_workspace = true;
+                        cx.notify();
+                    }
+                }),
+            ))
+        }
+    }
+
+    #[gpui::test]
+    fn sidebar_button_remains_clickable_while_settings_are_open(cx: &mut TestAppContext) {
+        cx.update(gpui_component::init);
+        let (probe, cx) = cx.add_window_view(|_, _| SidebarToggleProbe {
+            settings_open: true,
+            returned_to_workspace: false,
+        });
+        let bounds = cx.debug_bounds("toggle-sidebar").expect("sidebar button bounds");
+        let center = gpui::point(
+            bounds.origin.x + bounds.size.width * 0.5,
+            bounds.origin.y + bounds.size.height * 0.5,
+        );
+
+        cx.simulate_click(center, Modifiers::default());
+
+        assert_eq!(
+            probe.read_with(cx, |probe, _| (probe.settings_open, probe.returned_to_workspace)),
+            (false, true),
+            "设置页的侧栏按钮必须可点击并返回工作区"
+        );
+    }
+}
+
+#[cfg(feature = "gpui-test-support")]
 mod tab_rename_paste_tests {
     use super::*;
     use gpui::{ClipboardItem, TestAppContext};
