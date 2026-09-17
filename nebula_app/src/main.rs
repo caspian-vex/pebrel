@@ -50,6 +50,7 @@ mod chemistry;
 mod cli;
 mod clipboard;
 mod codex_config;
+mod completion_context;
 mod config;
 mod config_cli;
 mod daemon;
@@ -126,10 +127,13 @@ mod taskbar;
 mod terminal_profiles;
 mod text_document;
 mod text_preview;
+#[cfg(feature = "gpui-shell")]
+pub(crate) mod theme_library;
 mod tray;
 mod update_check;
 #[cfg(feature = "gpui-shell")]
 mod update_download;
+mod update_proxy;
 mod ux;
 #[cfg(feature = "legacy-shell")]
 pub(crate) mod window_context;
@@ -239,7 +243,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         if try_hand_over_to_resident(&options) {
             return Ok(());
         }
-        gpui_shell::run_shell(initial_cwd);
+        gpui_shell::run_shell(initial_cwd, options.window_options.terminal_options.command());
         return Ok(());
     }
 
@@ -519,12 +523,17 @@ fn wants_gpui_shell(options: &Options) -> bool {
 /// 驻留进程，再 `tab.new`。GPUI 与 winit 共用，避免第二份进程无声退出。
 #[cfg(windows)]
 fn try_hand_over_to_resident(options: &Options) -> bool {
+    if platform::elevation::requires_isolation() {
+        return false;
+    }
     let has_command = options.window_options.terminal_options.command().is_some();
     let launch_dir = options
         .window_options
         .terminal_options
         .resolved_working_directory()
-        .filter(|path| path.is_dir());
+        .or_else(|| env::current_dir().ok())
+        .filter(|path| path.is_dir())
+        .and_then(|path| std::path::absolute(path).ok());
     if !options.daemon
         && !has_command
         && nebula_settings::RuntimeSettings::load().windowing_behavior
@@ -532,9 +541,7 @@ fn try_hand_over_to_resident(options: &Options) -> bool {
     {
         return runtime_api::try_open_window_existing(launch_dir.as_deref());
     }
-    let plain_launch = !options.daemon
-        && options.window_options.terminal_options.working_directory.is_none()
-        && !has_command;
+    let plain_launch = !options.daemon && launch_dir.is_none() && !has_command;
     if plain_launch && runtime_api::try_open_default_tab_existing() {
         return true;
     }

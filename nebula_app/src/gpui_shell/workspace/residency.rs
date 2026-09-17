@@ -986,6 +986,10 @@ impl NebulaWorkspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        // Private administrator windows have no public resident discovery path.
+        if crate::platform::elevation::requires_isolation() {
+            return false;
+        }
         let runtime = nebula_settings::RuntimeSettings::load();
         // 平台藏不了窗口就没有「驻留」可言：不拦关闭，否则 Unix 上会变成
         // 既不关也不藏（设置页那一行也按同一能力位隐藏）。
@@ -998,12 +1002,22 @@ impl NebulaWorkspace {
         {
             return false;
         }
-        super::windowing::save_current_window_session(
+        if let Err(error) = super::windowing::save_current_window_session(
             self.runtime_window_id,
             self.snapshot_session(cx),
             super::session_persistence::SaveReason::Checkpoint,
             cx,
-        );
+        ) {
+            log::warn!("Could not checkpoint before hiding window: {error}");
+            let language = crate::gpui_shell::config::ui_language(cx);
+            crate::gpui_shell::toast::banner(
+                window,
+                cx,
+                crate::display::ToastKind::Warning,
+                language.text(crate::i18n::Message::SessionSaveFailed),
+            );
+            return true;
+        }
         crate::gpui_shell::hide_native_window(window);
         self.window_hidden = true;
         true
